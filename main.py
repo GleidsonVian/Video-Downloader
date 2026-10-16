@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import yt_dlp
 import threading
 import os
+import sys
 import re
 import time
 import subprocess
@@ -67,24 +67,6 @@ def nome_de_arquivo(texto):
     """Remove caracteres que o Windows não aceita em nomes de arquivo"""
     texto = re.sub(r'[/\\|]', '-', texto)
     return re.sub(r'[<>:"?*\x00-\x1f]', '', texto).strip(" .")[:100]
-
-
-class LoggerYtdlp:
-    """Recebe as mensagens do yt-dlp para detectar cookies inválidos"""
-    def __init__(self):
-        self.avisos = []
-
-    def debug(self, msg):
-        pass
-
-    def info(self, msg):
-        pass
-
-    def warning(self, msg):
-        self.avisos.append(msg)
-
-    def error(self, msg):
-        self.avisos.append(msg)
 
 
 class YouTubeDownloader:
@@ -254,18 +236,70 @@ class YouTubeDownloader:
         if caminho:
             self.selecionar_video(os.path.normpath(caminho))
 
-    def progress_hook(self, d):
-        if d['status'] == 'downloading':
-            p = d.get('_percent_str', '0%').replace('%', '').strip()
-            try:
-                percent = float(re.sub(r'\x1b\[[0-9;]*m', '', p))
-                self.na_tela(self.progress_bar.config, value=percent)
-                self.na_tela(self.progress_label.config, text=f"Baixando: {percent}%")
-            except ValueError:
-                pass
+    def rodar_ytdlp(self, url, paralelos, arquivo_cookies):
+        """Baixa com o yt-dlp num processo separado. Retorna (caminho_final, erro, avisos).
 
-        if d['status'] == 'finished':
-            self.na_tela(self.progress_label.config, text="Mesclando áudio e vídeo (Muxing)...")
+        Processo separado porque, quando o download falha no meio, o yt-dlp pode deixar arquivos
+        abertos; ao fim do processo o Windows libera tudo e a próxima tentativa continua de onde parou.
+        """
+        comando = [
+            sys.executable, "-m", "yt_dlp", "--newline", "--no-colors", "--progress",
+            # Prefere H.264 (avc1), que abre em qualquer player; senão o melhor MP4 até 1080p.
+            "-f", ("bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+                   "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"),
+            "--merge-output-format", "mp4",
+            "-o", os.path.join(PASTA_VIDEOS, "%(title)s.%(ext)s"),
+            # Vídeos que foram lives vêm em centenas de pedaços: baixa vários de cada vez
+            "--concurrent-fragments", str(paralelos),
+            # O YouTube exige um runtime JavaScript; usa o Node.js instalado
+            "--js-runtimes", "node",
+            "--progress-template", "download:PROGRESSO %(progress._percent_str)s",
+            "--print", "after_move:ARQUIVO %(filepath)s",
+        ]
+        # Cookies evitam o "confirm you're not a bot": usa cookies.txt se existir, senão os do Firefox.
+        # (Chrome e Edge criptografam os cookies e o yt-dlp não consegue lê-los.)
+        if arquivo_cookies:
+            comando += ["--cookies", arquivo_cookies]
+        elif firefox_instalado():
+            comando += ["--cookies-from-browser", "firefox"]
+        comando.append(url)
+
+        processo = subprocess.Popen(
+            comando, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+            errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        caminho, erros, avisos = None, [], []
+        for linha in processo.stdout:
+            linha = linha.strip()
+            if linha.startswith("PROGRESSO"):
+                try:
+                    percent = float(linha.split()[-1].rstrip("%"))
+                    self.na_tela(self.progress_bar.config, value=percent)
+                    self.na_tela(self.progress_label.config,
+                                 text="Mesclando áudio e vídeo..." if percent >= 100 else f"Baixando: {percent}%")
+                except ValueError:
+                    pass
+            elif linha.startswith("ARQUIVO "):
+                caminho = linha[len("ARQUIVO "):]
+            elif linha.startswith("ERROR:"):
+                erros.append(linha)
+            elif linha.startswith("WARNING:"):
+                avisos.append(linha)
+        processo.wait()
+        erro = None if processo.returncode == 0 and caminho else ("\n".join(erros) or "O download falhou sem mensagem de erro")
+        return caminho, erro, avisos
+
+    @staticmethod
+    def limpar_temporarios(caminho_video):
+        """Apaga pedaços que sobraram de uma tentativa que falhou (ex: 'Aula.f140.m4a.part-Frag12')"""
+        pasta = os.path.dirname(caminho_video)
+        titulo = os.path.splitext(os.path.basename(caminho_video))[0]
+        for nome in os.listdir(pasta):
+            if nome.startswith(titulo + ".") and (".part" in nome or nome.endswith(".ytdl")):
+                try:
+                    os.remove(os.path.join(pasta, nome))
+                except OSError:
+                    pass
 
     def download_video(self):
         url = self.url_entry.get().strip()
@@ -275,56 +309,28 @@ class YouTubeDownloader:
 
         self.na_tela(self.btn_download.config, state="disabled")
         os.makedirs(PASTA_VIDEOS, exist_ok=True)
-        logger = LoggerYtdlp()
-
-        # DEFINIÇÕES DE FORMATO RESTRITAS
-        ydl_opts = {
-            # Prefere H.264 (avc1), que abre em qualquer player; senão o melhor MP4 até 1080p.
-            'format': ('bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/'
-                       'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best'),
-            'merge_output_format': 'mp4',
-            'outtmpl': os.path.join(PASTA_VIDEOS, '%(title)s.%(ext)s'),
-            # Isso impede que os arquivos de áudio/vídeo fiquem sobrando
-            'keepvideo': False,
-            # Vídeos que foram lives vêm em centenas de pedaços: baixa 8 de cada vez
-            'concurrent_fragment_downloads': 8,
-            'progress_hooks': [self.progress_hook],
-            # Mensagens vão para o logger (usado para detectar cookies inválidos)
-            'logger': logger,
-            # O YouTube exige um runtime JavaScript; usa o Node.js instalado
-            'js_runtimes': {'node': {}},
-        }
-
-        # Cookies evitam o "confirm you're not a bot": usa cookies.txt se existir, senão os do Firefox.
-        # (Chrome e Edge criptografam os cookies e o yt-dlp não consegue lê-los.)
         arquivo_cookies = achar_cookies()
-        if arquivo_cookies:
-            ydl_opts['cookiefile'] = arquivo_cookies
-        elif firefox_instalado():
-            ydl_opts['cookiesfrombrowser'] = ('firefox',)
 
         try:
             # Se o vídeo já foi baixado antes, o yt-dlp reaproveita o arquivo
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-            except Exception as e:
-                if "not a bot" in str(e) or "live event" in str(e):
-                    raise
+            caminho, erro, avisos = self.rodar_ytdlp(url, 8, arquivo_cookies)
+            if erro and "not a bot" not in erro and "live event" not in erro:
                 # Pedaços quebrados no YouTube travam o download em paralelo; um por vez, o
                 # yt-dlp pula esses pedaços. Continua de onde parou, sem baixar tudo de novo.
                 self.na_tela(self.progress_label.config, text="Tentando de novo em modo seguro (mais lento)...")
-                ydl_opts['concurrent_fragment_downloads'] = 1
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-            self.na_tela(self.selecionar_video, info['requested_downloads'][0]['filepath'])
+                caminho, erro, avisos = self.rodar_ytdlp(url, 1, arquivo_cookies)
+            if erro:
+                raise RuntimeError(erro)
+            self.limpar_temporarios(caminho)
+            self.na_tela(self.selecionar_video, caminho)
 
             self.na_tela(self.progress_label.config, text="Pronto! Agora você pode gerar cortes abaixo.")
             self.na_tela(self.status_label.config, text="Concluído com sucesso!", fg="green")
-            if any("no longer valid" in aviso for aviso in logger.avisos):
+            if any("no longer valid" in aviso for aviso in avisos):
                 self.na_tela(self.status_label.config, fg="#c47a00",
                              text="Baixou, mas seus cookies não valem mais — exporte de novo antes que o YouTube bloqueie")
-            self.na_tela(messagebox.showinfo, "Sucesso", f"Vídeo baixado:\n{info.get('title')}")
+            titulo = os.path.splitext(os.path.basename(caminho))[0]
+            self.na_tela(messagebox.showinfo, "Sucesso", f"Vídeo baixado:\n{titulo}")
 
         except Exception as e:
             erro = re.sub(r'\x1b\[[0-9;]*m', '', str(e))
