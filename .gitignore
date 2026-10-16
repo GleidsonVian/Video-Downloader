@@ -1,0 +1,22 @@
+# Cookies do YouTube: dão acesso à conta do Google, NUNCA subir
+*cookies*.txt
+
+# Vídeos baixados e cortes gerados
+Vídeos/
+Cortes/
+*.mp4
+*.mkv
+*.webm
+*.part
+*.ytdl
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build do .exe
+build/
+dist/
+*.spec
