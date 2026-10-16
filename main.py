@@ -286,8 +286,8 @@ class YouTubeDownloader:
             'outtmpl': os.path.join(PASTA_VIDEOS, '%(title)s.%(ext)s'),
             # Isso impede que os arquivos de áudio/vídeo fiquem sobrando
             'keepvideo': False,
-            # Baixa em pedaços de 10 MB: evita que o YouTube reduza a velocidade da conexão
-            'http_chunk_size': 10 * 1024 * 1024,
+            # Vídeos que foram lives vêm em centenas de pedaços: baixa 8 de cada vez
+            'concurrent_fragment_downloads': 8,
             'progress_hooks': [self.progress_hook],
             # Mensagens vão para o logger (usado para detectar cookies inválidos)
             'logger': logger,
@@ -305,8 +305,18 @@ class YouTubeDownloader:
 
         try:
             # Se o vídeo já foi baixado antes, o yt-dlp reaproveita o arquivo
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            except Exception as e:
+                if "not a bot" in str(e) or "live event" in str(e):
+                    raise
+                # Pedaços quebrados no YouTube travam o download em paralelo; um por vez, o
+                # yt-dlp pula esses pedaços. Continua de onde parou, sem baixar tudo de novo.
+                self.na_tela(self.progress_label.config, text="Tentando de novo em modo seguro (mais lento)...")
+                ydl_opts['concurrent_fragment_downloads'] = 1
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
             self.na_tela(self.selecionar_video, info['requested_downloads'][0]['filepath'])
 
             self.na_tela(self.progress_label.config, text="Pronto! Agora você pode gerar cortes abaixo.")
@@ -321,6 +331,9 @@ class YouTubeDownloader:
             if "live event" in erro:
                 dica = ("Esse link é de uma live que acabou de terminar.\n"
                         "O YouTube ainda está processando o vídeo; tente de novo mais tarde.")
+            elif "timed out" in erro.lower() or "connection" in erro.lower():
+                dica = ("A conexão com o YouTube travou.\n"
+                        "Clique em BAIXAR VÍDEO de novo: o download continua de onde parou.")
             elif "No video formats" in erro or "reloaded" in erro:
                 dica = 'Atualize o yt-dlp: python -m pip install -U "yt-dlp[default]"'
             elif ("not a bot" in erro or "429" in erro) and arquivo_cookies:
