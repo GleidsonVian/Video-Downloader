@@ -5,6 +5,7 @@ Programa com interface gráfica para baixar vídeos do YouTube (até 1080p) e ge
 ## Funcionalidades
 
 - Download em até 1080p, preferindo H.264 (abre em qualquer player e no celular)
+- **Player para marcar cortes**: assista em 1x a 4x, clique em *Marcar início* e *Fechar corte* e o corte entra na lista (requer o [VLC](https://www.videolan.org/) de 64 bits)
 - Vários cortes de uma vez, cada um com início, fim e nome próprios
 - Corte exato no segundo pedido, com barra de progresso
 - Opção **Caber no WhatsApp**: comprime cortes longos para ficarem abaixo de 180 MB
@@ -23,6 +24,7 @@ No Windows, FFmpeg e Node.js podem ser instalados com:
 ```bash
 winget install Gyan.FFmpeg
 winget install OpenJS.NodeJS.LTS
+winget install --id VideoLAN.VLC -e --architecture x64
 ```
 
 ## Instalação
@@ -32,6 +34,14 @@ git clone https://github.com/GleidsonVian/Video-Downloader.git
 cd Video-Downloader
 python -m pip install -r requirements.txt
 ```
+
+## Executável (.exe)
+
+Para usar sem abrir terminal ou VS Code, dê dois cliques em **`build.bat`**. Ele atualiza o yt-dlp e gera o `Downloader Pro.exe` nesta pasta (leva uns 3 minutos).
+
+- O `.exe` precisa ficar **nesta pasta**: é ao lado dele que ficam `Vídeos/`, `Cortes/` e o arquivo de cookies
+- FFmpeg e Node.js continuam sendo necessários (veja Requisitos)
+- O yt-dlp vai **dentro** do `.exe`. Quando o YouTube mudar algo e os downloads pararem de funcionar, rode o `build.bat` de novo para gerar um `.exe` atualizado
 
 ## Cookies do YouTube
 

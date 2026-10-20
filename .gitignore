@@ -16,7 +16,8 @@ __pycache__/
 .venv/
 venv/
 
-# Build do .exe
+# Build do .exe (gerado pelo build.bat)
 build/
 dist/
 *.spec
+*.exe
