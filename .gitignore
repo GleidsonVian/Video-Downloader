@@ -1,9 +1,11 @@
 # Cookies do YouTube: dão acesso à conta do Google, NUNCA subir
 *cookies*.txt
 
-# Vídeos baixados e cortes gerados
+# Vídeos, músicas baixadas e cortes gerados
 Vídeos/
+Músicas/
 Cortes/
+*.mp3
 *.mp4
 *.mkv
 *.webm
