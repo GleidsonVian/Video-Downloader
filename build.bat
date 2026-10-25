@@ -6,14 +6,14 @@ title Recompilar Downloader Pro
 cd /d "%~dp0"
 rem "call": no pyenv o python e um .bat, e sem call o script pararia depois dele
 
-echo === 1/3 Atualizando yt-dlp, python-vlc e PyInstaller...
-call python -m pip install -U "yt-dlp[default]" python-vlc pyinstaller || goto erro
+echo === 1/3 Atualizando yt-dlp e as bibliotecas...
+call python -m pip install -U "yt-dlp[default]" python-vlc customtkinter pyinstaller || goto erro
 
 echo.
 echo === 2/3 Gerando o executavel (leva uns 3 minutos)...
 call python -m PyInstaller --noconfirm --clean --onefile --windowed ^
     --name "Downloader Pro" --icon icone.ico --add-data "icone.ico;." ^
-    --collect-all yt_dlp --collect-all yt_dlp_ejs ^
+    --collect-all yt_dlp --collect-all yt_dlp_ejs --collect-all customtkinter ^
     main.py || goto erro
 
 echo.

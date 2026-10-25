@@ -6,17 +6,46 @@ SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=7"  # volume padrão de redes sociais (-16 LUFS)
 
 
-def filtro_audio(modo, equilibrar_volume, volume_musica, duracao):
-    """Monta o filtro do ffmpeg que combina o áudio do vídeo ([0:a]) com a música ([1:a]) em [aout]"""
+def filtro_audio(modo, equilibrar_volume, volume_musica, duracao, voz="[0:a]", entrada_musica="[1:a]"):
+    """Monta o filtro do ffmpeg que combina o áudio do vídeo (voz) com a música em [aout]"""
     fade = min(2.0, duracao / 4)  # a música entra e sai suavemente, sem corte seco
-    musica = f"[1:a]afade=t=in:d={fade:g},afade=t=out:st={max(duracao - fade, 0):g}:d={fade:g}"
+    musica = f"{entrada_musica}afade=t=in:d={fade:g},afade=t=out:st={max(duracao - fade, 0):g}:d={fade:g}"
     normalizar = f",{LOUDNORM}" if equilibrar_volume else ""
+    volume = f"volume={volume_musica / 100:g}"
     if modo == "musica":
-        return f"{musica}{normalizar}[aout]"
+        # Só a música: o volume vem DEPOIS do equilíbrio, senão o equilíbrio (que leva tudo para um
+        # volume fixo) desfaria o ajuste e o controle de volume pareceria não funcionar.
+        return f"{musica}{normalizar},{volume}[aout]"
     # Mistura: a voz do vídeo no volume original e a música no volume escolhido (5 a 100%).
     # normalize=0 mantém os volumes como estão, em vez de abaixar os dois pela metade.
-    return (f"{musica},volume={volume_musica / 100:g}[bg];"
-            f"[0:a][bg]amix=inputs=2:duration=first:normalize=0{normalizar}[aout]")
+    return (f"{musica},{volume}[bg];"
+            f"{voz}[bg]amix=inputs=2:duration=first:normalize=0{normalizar}[aout]")
+
+
+def rodar_ffmpeg(comando, duracao, ao_progresso=None, ao_iniciar=None):
+    """Roda o ffmpeg acompanhando o andamento. 'duracao' (s) é o tamanho do arquivo final.
+
+    ao_progresso(fração 0 a 1) acompanha o andamento; ao_iniciar(processo) permite cancelar
+    (e recebe None quando termina). Levanta RuntimeError se o ffmpeg falhar.
+    """
+    processo = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                creationflags=SEM_JANELA)
+    if ao_iniciar:
+        ao_iniciar(processo)
+    try:
+        # O ffmpeg informa o tempo já processado em linhas "out_time_us=..."
+        for linha in processo.stdout:
+            if ao_progresso and linha.startswith(("out_time_us=", "out_time_ms=")):
+                try:
+                    ao_progresso(min(int(linha.split("=")[1]) / 1_000_000 / duracao, 1.0))
+                except ValueError:
+                    pass
+        erro = processo.stderr.read()
+        if processo.wait() != 0:
+            raise RuntimeError(f"ffmpeg falhou: {erro.strip()}")
+    finally:
+        if ao_iniciar:
+            ao_iniciar(None)
 
 
 def placa_amd_disponivel():
@@ -90,22 +119,5 @@ def gerar_corte(caminho_video, inicio, fim, caminho_corte, limitar_whatsapp=Fals
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
         caminho_corte,
     ]
-    processo = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                creationflags=SEM_JANELA)
-    if ao_iniciar:
-        ao_iniciar(processo)
-    try:
-        # O ffmpeg informa o tempo já processado em linhas "out_time_us=..."
-        for linha in processo.stdout:
-            if ao_progresso and linha.startswith(("out_time_us=", "out_time_ms=")):
-                try:
-                    ao_progresso(min(int(linha.split("=")[1]) / 1_000_000 / duracao, 1.0))
-                except ValueError:
-                    pass
-        erro = processo.stderr.read()
-        if processo.wait() != 0:
-            raise RuntimeError(f"ffmpeg falhou ao cortar: {erro.strip()}")
-    finally:
-        if ao_iniciar:
-            ao_iniciar(None)
+    rodar_ffmpeg(comando, duracao, ao_progresso, ao_iniciar)
     return caminho_corte

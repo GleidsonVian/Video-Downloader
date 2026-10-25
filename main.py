@@ -12,9 +12,11 @@ def baixar_com_ytdlp():
 
 
 def abrir_programa():
-    import tkinter as tk
+    import customtkinter as ctk
+    from downloader_pro import tema
     from downloader_pro.interface import JanelaPrincipal
-    root = tk.Tk()
+    tema.iniciar()
+    root = ctk.CTk()
     JanelaPrincipal(root)
     root.mainloop()
 

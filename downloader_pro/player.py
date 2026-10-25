@@ -3,6 +3,9 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 
+import customtkinter as ctk
+
+from . import tema
 from .tempos import tempo_curto
 
 
@@ -27,7 +30,7 @@ class PlayerCortes:
     """
 
     VELOCIDADES = (1, 1.5, 2, 3, 4)
-    FUNDO = "#1e1e1e"
+    FUNDO = tema.FUNDO
 
     def __init__(self, janela_pai, caminho, vlc, lista_cortes):
         self.lista = lista_cortes
@@ -36,11 +39,11 @@ class PlayerCortes:
         self.arrastando = None      # posição (s) enquanto o mouse arrasta a linha do tempo
         self.marcados = 0
 
-        self.janela = tk.Toplevel(janela_pai)
+        self.janela = ctk.CTkToplevel(janela_pai, fg_color=self.FUNDO)
         self.janela.title(f"Assistir e marcar — {os.path.basename(caminho)}")
         self.janela.geometry("1000x720")
         self.janela.minsize(640, 420)
-        self.janela.configure(bg=self.FUNDO)
+        tema.aplicar_icone(self.janela)
         self.janela.protocol("WM_DELETE_WINDOW", self.fechar)
         self.criar_widgets()
 
@@ -74,37 +77,34 @@ class PlayerCortes:
         self.timeline.bind("<ButtonRelease-1>", self.soltar)
 
         # Controles
-        barra = tk.Frame(self.janela, bg=self.FUNDO)
-        barra.pack(fill=tk.X, padx=12, pady=8)
-        estilo = dict(bg="#333", fg="white", activebackground="#555", activeforeground="white",
-                      relief="flat", font=("Arial", 10, "bold"), padx=8)
-        self.btn_play = tk.Button(barra, text="⏸", width=3, command=self.play_pause, **estilo)
+        barra = ctk.CTkFrame(self.janela, fg_color="transparent")
+        barra.pack(fill=tk.X, padx=14, pady=(8, 4))
+        self.btn_play = tema.botao(barra, "⏸", tema.CINZA, self.play_pause, altura=34, width=44)
         self.btn_play.pack(side=tk.LEFT)
-        tk.Button(barra, text="−10s", command=lambda: self.pular(-10), **estilo).pack(side=tk.LEFT, padx=(6, 0))
-        tk.Button(barra, text="+10s", command=lambda: self.pular(10), **estilo).pack(side=tk.LEFT, padx=(2, 0))
-        self.tempo_label = tk.Label(barra, text="00:00 / 00:00", bg=self.FUNDO, fg="white",
-                                    font=("Consolas", 12, "bold"))
-        self.tempo_label.pack(side=tk.LEFT, padx=14)
+        tema.botao(barra, "−10s", tema.CINZA, lambda: self.pular(-10), altura=34, width=56).pack(side=tk.LEFT, padx=(6, 0))
+        tema.botao(barra, "+10s", tema.CINZA, lambda: self.pular(10), altura=34, width=56).pack(side=tk.LEFT, padx=(4, 0))
+        self.tempo_label = ctk.CTkLabel(barra, text="00:00 / 00:00", text_color=tema.TEXTO,
+                                        font=ctk.CTkFont(family="Consolas", size=15, weight="bold"))
+        self.tempo_label.pack(side=tk.LEFT, padx=16)
 
-        tk.Label(barra, text="Velocidade:", bg=self.FUNDO, fg="#aaa").pack(side=tk.LEFT)
+        tema.rotulo(barra, "Velocidade", 12, suave=True).pack(side=tk.LEFT, padx=(0, 6))
         self.botoes_velocidade = {}
         for v in self.VELOCIDADES:
-            b = tk.Button(barra, text=f"{v:g}x", width=4, command=lambda v=v: self.mudar_velocidade(v), **estilo)
-            b.pack(side=tk.LEFT, padx=1)
+            b = tema.botao(barra, f"{v:g}x", tema.CINZA, lambda v=v: self.mudar_velocidade(v), altura=34, width=46)
+            b.pack(side=tk.LEFT, padx=2)
             self.botoes_velocidade[v] = b
 
         # Botão de marcar numa linha própria, para o texto "FECHAR CORTE (início → agora)" caber inteiro
-        barra_marcar = tk.Frame(self.janela, bg=self.FUNDO)
-        barra_marcar.pack(pady=(0, 6))
-        self.btn_marcar = tk.Button(barra_marcar, command=self.marcar, relief="flat", fg="white",
-                                    font=("Arial", 12, "bold"), padx=30, pady=8)
+        barra_marcar = ctk.CTkFrame(self.janela, fg_color="transparent")
+        barra_marcar.pack(pady=(4, 6))
+        self.btn_marcar = tema.botao(barra_marcar, "", tema.AZUL, self.marcar, altura=48, width=380)
         self.btn_marcar.pack(side=tk.LEFT)
-        self.btn_cancelar = tk.Button(barra_marcar, text="Cancelar (Esc)", command=self.cancelar_marcacao, **estilo)
+        self.btn_cancelar = tema.botao(barra_marcar, "Cancelar (Esc)", tema.CINZA, self.cancelar_marcacao, altura=48)
 
-        self.info_label = tk.Label(
-            self.janela, bg=self.FUNDO, fg="#aaa", font=("Arial", 9),
-            text="Espaço: pausar  •  ← →: 5s  •  ↑ ↓: velocidade  •  M: marcar  •  Esc: cancelar marcação")
-        self.info_label.pack(pady=(0, 8))
+        self.info_label = tema.rotulo(
+            self.janela, "Espaço: pausar  •  ← →: 5s  •  ↑ ↓: velocidade  •  M: marcar  •  Esc: cancelar marcação",
+            11, suave=True)
+        self.info_label.pack(pady=(0, 10))
 
         for tecla, acao in (("<space>", lambda e: self.play_pause()), ("<Left>", lambda e: self.pular(-5)),
                             ("<Right>", lambda e: self.pular(5)), ("<Up>", lambda e: self.passo_velocidade(1)),
@@ -144,7 +144,7 @@ class PlayerCortes:
         self.velocidade = v
         self.player.set_rate(v)
         for valor, botao in self.botoes_velocidade.items():
-            botao.config(bg="#2b6cc4" if valor == v else "#333")
+            botao.configure(fg_color=(tema.AZUL if valor == v else tema.CINZA)[0], hover_color=(tema.AZUL if valor == v else tema.CINZA)[1])
 
     def passo_velocidade(self, direcao):
         i = self.VELOCIDADES.index(self.velocidade) + direcao
@@ -189,10 +189,10 @@ class PlayerCortes:
         if not self.janela.winfo_exists():
             return
         agora = self.arrastando if self.arrastando is not None else self.atual()
-        self.tempo_label.config(text=f"{tempo_curto(agora)} / {tempo_curto(self.duracao())}")
-        self.btn_play.config(text="⏸" if self.player.is_playing() else "▶")
+        self.tempo_label.configure(text=f"{tempo_curto(agora)} / {tempo_curto(self.duracao())}")
+        self.btn_play.configure(text="⏸" if self.player.is_playing() else "▶")
         if self.inicio_marcado is not None:
-            self.btn_marcar.config(text=f"⏹ FECHAR CORTE  ({tempo_curto(self.inicio_marcado)} → {tempo_curto(agora)})")
+            self.btn_marcar.configure(text=f"⏹  Fechar corte  ({tempo_curto(self.inicio_marcado)} → {tempo_curto(agora)})")
         self.desenhar()
         self.janela.after(200, self.atualizar)
 
@@ -210,8 +210,8 @@ class PlayerCortes:
             self.lista.adicionar_corte(int(inicio), int(fim) + (fim % 1 > 0))
             self.inicio_marcado = None
             self.marcados += 1
-            self.info_label.config(fg="#7bd389", text=f"✓ {self.marcados} corte(s) marcado(s) nesta sessão — "
-                                   "dê nome a eles e clique em GERAR CORTES na janela principal")
+            self.info_label.configure(text_color=tema.VERDE_TEXTO, text=f"✓ {self.marcados} corte(s) marcado(s) nesta sessão — "
+                                   "dê nome a eles e clique em GERAR na janela do editor")
         self.atualizar_botao_marcar()
 
     def cancelar_marcacao(self):
@@ -220,11 +220,11 @@ class PlayerCortes:
 
     def atualizar_botao_marcar(self):
         if self.inicio_marcado is None:
-            self.btn_marcar.config(text="⏺ MARCAR INÍCIO", bg="#2b6cc4", activebackground="#2b6cc4")
+            self.btn_marcar.configure(text="⏺  Marcar início", fg_color=tema.AZUL[0], hover_color=tema.AZUL[1])
             self.btn_cancelar.pack_forget()
         else:
-            self.btn_marcar.config(bg="#c4302b", activebackground="#c4302b")
-            self.btn_cancelar.pack(side=tk.LEFT, padx=8, ipady=6)
+            self.btn_marcar.configure(fg_color=tema.VERMELHO[0], hover_color=tema.VERMELHO[1])
+            self.btn_cancelar.pack(side=tk.LEFT, padx=8)
 
     def fechar(self):
         self.player.stop()

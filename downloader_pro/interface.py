@@ -1,13 +1,16 @@
-"""Janela principal: baixar vídeo ou música e abrir o editor."""
+"""Janela principal: baixar vídeo ou música e abrir o editor e a biblioteca."""
 import os
 import re
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 
-from . import cookies, ytdlp
+import customtkinter as ctk
+
+from . import cookies, tema, ytdlp
 from .arquivos import limpar_temporarios
-from .config import ICONE, PASTA_MUSICAS, PASTA_VIDEOS
+from .biblioteca import JanelaBiblioteca
+from .config import PASTA_MUSICAS, PASTA_VIDEOS
 from .editor import JanelaEditor
 from .sistema import agendar, encerrar_processo
 
@@ -15,12 +18,13 @@ from .sistema import agendar, encerrar_processo
 class JanelaPrincipal:
     def __init__(self, root):
         self.root = root
-        self.root.title("Downloader Pro (1080p/720p)")
-        self.root.geometry("540x380")
-        self.root.configure(padx=20, pady=15)
-        if os.path.exists(ICONE):
-            self.root.iconbitmap(ICONE)
+        self.root.title("Downloader Pro")
+        self.root.geometry("600x500")
+        self.root.minsize(520, 480)
+        self.root.configure(fg_color=tema.FUNDO)
+        tema.aplicar_icone(self.root)
         self.editor = None
+        self.biblioteca = None
         self.video_pendente = None  # último vídeo baixado, que o editor usa na próxima vez que for aberto
         self.processos = {}  # processos externos em andamento ("download", "corte"), para encerrar ao fechar
         self.root.protocol("WM_DELETE_WINDOW", self.ao_fechar)
@@ -28,34 +32,40 @@ class JanelaPrincipal:
 
     def criar_widgets(self):
         root = self.root
-        tk.Label(root, text="URL do Vídeo (Prioridade 1080p):", font=("Arial", 10, "bold")).pack()
-        self.url_entry = tk.Entry(root, width=55)
-        self.url_entry.pack(pady=8)
+        tema.rotulo(root, "Downloader Pro", 28, True).pack(anchor="w", padx=24, pady=(20, 0))
+        tema.rotulo(root, "Baixe vídeos e músicas do YouTube e gere cortes prontos para o WhatsApp.", 12,
+                    suave=True).pack(anchor="w", padx=24)
 
-        botoes = tk.Frame(root)
-        botoes.pack(pady=5, fill=tk.X)
-        self.btn_download = tk.Button(botoes, text="BAIXAR VÍDEO", command=self.start_download_thread,
-                                      bg="#c4302b", fg="white", font=("Arial", 10, "bold"), height=2)
+        quadro = tema.cartao(root, "Download")
+        quadro.pack(fill=tk.X, padx=24, pady=(16, 0))
+        self.url_entry = tema.campo(quadro, height=44, placeholder_text="Cole o link do YouTube aqui…")
+        self.url_entry.pack(fill=tk.X, padx=16, pady=(10, 0))
+
+        botoes = ctk.CTkFrame(quadro, fg_color="transparent")
+        botoes.pack(fill=tk.X, padx=16, pady=(12, 0))
+        self.btn_download = tema.botao(botoes, "⬇  Baixar vídeo", tema.VERMELHO, self.start_download_thread, altura=46)
         self.btn_download.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.btn_audio = tk.Button(botoes, text="♪ SÓ ÁUDIO (MP3)",
-                                   command=lambda: self.start_download_thread(somente_audio=True),
-                                   bg="#7a3db8", fg="white", font=("Arial", 10, "bold"), height=2)
-        self.btn_audio.pack(side=tk.LEFT, padx=(6, 0))
+        self.btn_audio = tema.botao(botoes, "♪  Só áudio (MP3)", tema.ROXO,
+                                    lambda: self.start_download_thread(somente_audio=True), altura=46)
+        self.btn_audio.pack(side=tk.LEFT, padx=(8, 0))
 
-        self.progress_label = tk.Label(root, text="Aguardando link...")
-        self.progress_label.pack()
-        self.progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
-        self.progress_bar.pack(pady=5)
+        self.progress_label = tema.rotulo(quadro, "Aguardando link…", 12, suave=True)
+        self.progress_label.pack(anchor="w", padx=16, pady=(14, 0))
+        self.progress_bar = tema.barra_progresso(quadro, tema.VERMELHO)
+        self.progress_bar.pack(fill=tk.X, padx=16, pady=(6, 0))
         texto, cor = cookies.texto_status()
-        self.status_label = tk.Label(root, text=texto, font=("Arial", 8), fg=cor, wraplength=480)
-        self.status_label.pack()
+        self.status_label = tema.rotulo(quadro, texto, 11, suave=True, wraplength=500, justify="left")
+        self.status_label.configure(text_color=tema.AMARELO if cor != "gray" else tema.SUAVE)
+        self.status_label.pack(anchor="w", padx=16, pady=(6, 14))
 
-        ttk.Separator(root, orient="horizontal").pack(fill=tk.X, pady=14)
-        tk.Button(root, text="✂  EDITAR VÍDEO  (cortes e música de fundo)", command=self.abrir_editor,
-                  bg="#2b6cc4", fg="white", font=("Arial", 10, "bold"), height=2).pack(fill=tk.X)
-        self.editar_dica = tk.Label(root, text="Abre com o último vídeo baixado (ou escolha outro dentro do editor)",
-                                    font=("Arial", 8), fg="gray")
-        self.editar_dica.pack(pady=(4, 0))
+        edicao = ctk.CTkFrame(root, fg_color="transparent")
+        edicao.pack(fill=tk.X, padx=24, pady=(16, 0))
+        tema.botao(edicao, "✂  Editar vídeo", tema.AZUL, self.abrir_editor, altura=52).pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
+        tema.botao(edicao, "📚  Biblioteca", tema.CINZA, self.abrir_biblioteca, altura=52).pack(
+            side=tk.LEFT, padx=(8, 0))
+        tema.rotulo(root, "O editor abre com o último vídeo baixado (ou escolha outro dentro dele).", 11,
+                    suave=True).pack(pady=(8, 0))
 
     def na_tela(self, funcao, *args, **kwargs):
         agendar(self.root, funcao, *args, **kwargs)
@@ -65,7 +75,7 @@ class JanelaPrincipal:
             encerrar_processo(processo)
         self.root.destroy()
 
-    # --- Editor ---
+    # --- Editor e biblioteca ---
     def abrir_editor(self):
         """Abre o editor (ou traz o que já está aberto para a frente).
 
@@ -77,13 +87,29 @@ class JanelaPrincipal:
         if self.video_pendente:
             self.editor.selecionar_video(self.video_pendente)
             self.video_pendente = None
-        self.editor.janela.deiconify()
-        self.editor.janela.lift()
+        tema.trazer_para_frente(self.editor.janela)
+
+    def abrir_biblioteca(self):
+        """Abre a biblioteca (ou traz a que já está aberta para a frente)"""
+        if not (self.biblioteca and self.biblioteca.janela.winfo_exists()):
+            self.biblioteca = JanelaBiblioteca(self.root, self.editar_video)
+        self.biblioteca.atualizar()
+        tema.trazer_para_frente(self.biblioteca.janela)
+
+    def editar_video(self, caminho):
+        """Abre o editor com um vídeo específico (usado pela biblioteca)"""
+        self.video_pendente = caminho
+        self.abrir_editor()
+
+    def atualizar_biblioteca(self):
+        if self.biblioteca and self.biblioteca.janela.winfo_exists():
+            self.biblioteca.atualizar()
 
     def musica_baixada(self, caminho):
-        self.progress_label.config(text="Música pronta! Escolha-a em \"Áudio do corte\" no editor.")
+        self.progress_label.configure(text="Música pronta! Escolha-a em \"Áudio do corte\" no editor.")
         if self.editor and self.editor.janela.winfo_exists():
             self.editor.painel_audio.atualizar_musicas(caminho)
+        self.atualizar_biblioteca()
 
     # --- Download ---
     def start_download_thread(self, somente_audio=False):
@@ -91,11 +117,11 @@ class JanelaPrincipal:
 
     def mostrar_progresso(self, percent, somente_audio):
         if percent >= 100:
-            texto = "Convertendo para MP3..." if somente_audio else "Mesclando áudio e vídeo (quase pronto)..."
+            texto = "Convertendo para MP3…" if somente_audio else "Mesclando áudio e vídeo (quase pronto)…"
         else:
             texto = f"Baixando: {percent}%"
-        self.na_tela(self.progress_bar.config, value=percent)
-        self.na_tela(self.progress_label.config, text=texto)
+        self.na_tela(self.progress_bar.set, percent / 100)
+        self.na_tela(self.progress_label.configure, text=texto)
 
     def download(self, somente_audio=False):
         url = self.url_entry.get().strip()
@@ -103,8 +129,8 @@ class JanelaPrincipal:
             self.na_tela(messagebox.showwarning, "Aviso", "Por favor, cole um link!")
             return
 
-        self.na_tela(self.btn_download.config, state="disabled")
-        self.na_tela(self.btn_audio.config, state="disabled")
+        self.na_tela(self.btn_download.configure, state="disabled")
+        self.na_tela(self.btn_audio.configure, state="disabled")
         os.makedirs(PASTA_MUSICAS if somente_audio else PASTA_VIDEOS, exist_ok=True)
         arquivo_cookies = cookies.achar_cookies()
         baixar = lambda paralelos: ytdlp.baixar(
@@ -118,14 +144,14 @@ class JanelaPrincipal:
             if erro and "not a bot" not in erro and "live event" not in erro:
                 # Pedaços quebrados no YouTube travam o download em paralelo; um por vez, o
                 # yt-dlp pula esses pedaços. Continua de onde parou, sem baixar tudo de novo.
-                self.na_tela(self.progress_label.config, text="Tentando de novo em modo seguro (mais lento)...")
+                self.na_tela(self.progress_label.configure, text="Tentando de novo em modo seguro (mais lento)…")
                 caminho, erro, avisos = baixar(1)
             if erro:
                 raise RuntimeError(erro)
             limpar_temporarios(caminho)
-            self.na_tela(self.status_label.config, text="Concluído com sucesso!", fg="green")
+            self.na_tela(self.status_label.configure, text="Concluído com sucesso!", text_color=tema.VERDE_TEXTO)
             if any("no longer valid" in aviso for aviso in avisos):
-                self.na_tela(self.status_label.config, fg="#c47a00",
+                self.na_tela(self.status_label.configure, text_color=tema.AMARELO,
                              text="Baixou, mas seus cookies não valem mais — exporte de novo antes que o YouTube bloqueie")
             titulo = os.path.splitext(os.path.basename(caminho))[0]
             if somente_audio:
@@ -133,13 +159,14 @@ class JanelaPrincipal:
                 self.na_tela(messagebox.showinfo, "Sucesso", f"Música baixada:\n{titulo}")
             else:
                 self.video_pendente = caminho
-                self.na_tela(self.progress_label.config, text="Pronto! Clique em EDITAR VÍDEO para cortar.")
+                self.na_tela(self.progress_label.configure, text="Pronto! Clique em Editar vídeo para cortar.")
+                self.na_tela(self.atualizar_biblioteca)
         except Exception as e:
             erro = re.sub(r'\x1b\[[0-9;]*m', '', str(e))
             self.na_tela(messagebox.showerror, "Erro",
                          f"Ocorreu um problema: {erro}\n\n{ytdlp.dica_do_erro(erro, bool(arquivo_cookies))}")
-            self.na_tela(self.status_label.config, text="Erro no processo", fg="red")
+            self.na_tela(self.status_label.configure, text="Erro no processo", text_color=tema.VERMELHO_TEXTO)
         finally:
-            self.na_tela(self.btn_download.config, state="normal")
-            self.na_tela(self.btn_audio.config, state="normal")
-            self.na_tela(self.progress_bar.config, value=0)
+            self.na_tela(self.btn_download.configure, state="normal")
+            self.na_tela(self.btn_audio.configure, state="normal")
+            self.na_tela(self.progress_bar.set, 0)
