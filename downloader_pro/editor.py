@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from . import cortes, juncao, tema
-from .arquivos import abrir_pasta
+from .arquivos import abrir_pasta, nome_livre
 from .config import EXT_VIDEO, PASTA_CORTES, PASTA_SCRIPT, PASTA_VIDEOS
 from .lista_cortes import ListaCortes
 from .painel_audio import PainelAudio
@@ -27,8 +27,8 @@ class JanelaEditor:
 
         self.janela = ctk.CTkToplevel(janela_pai, fg_color=tema.FUNDO)
         self.janela.title("Editar vídeo — cortes e música")
-        self.janela.geometry("1080x700")
-        self.janela.minsize(960, 660)
+        self.janela.geometry("1080x830")
+        self.janela.minsize(960, 760)
         tema.aplicar_icone(self.janela)
         self.janela.protocol("WM_DELETE_WINDOW", self.fechar)
         self.criar_widgets()
@@ -44,8 +44,9 @@ class JanelaEditor:
         j.rowconfigure(0, weight=1)
         esquerda = ctk.CTkFrame(j, fg_color="transparent")
         esquerda.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=(16, 8))
-        direita = ctk.CTkFrame(j, fg_color="transparent")
-        direita.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=(16, 8))
+        # Coluna rolável: com a montagem de cortes prontos aberta, ela passa da altura da janela
+        direita = ctk.CTkScrollableFrame(j, fg_color="transparent")
+        direita.grid(row=0, column=1, sticky="nsew", padx=(8, 8), pady=(16, 8))
 
         # --- Esquerda: vídeo e cortes ---
         quadro_video = tema.cartao(esquerda, "Vídeo")
@@ -78,8 +79,7 @@ class JanelaEditor:
         self.check_gpu.pack(anchor="w", padx=16, pady=(8, 14))
 
         embaixo = ctk.CTkFrame(self.janela, fg_color="transparent")
-        self.btn_corte = tema.botao(embaixo, "GERAR CORTES", tema.AZUL, self.start_corte_thread, altura=50,
-                                    state="disabled")
+        self.btn_corte = tema.botao(embaixo, "GERAR CORTES", tema.AZUL, self.start_corte_thread, altura=50)
         self.painel_montagem = PainelMontagem(
             direita, ao_mudar=lambda juntar: self.btn_corte.configure(
                 text="GERAR VÍDEO MONTADO" if juntar else "GERAR CORTES"))
@@ -108,7 +108,6 @@ class JanelaEditor:
     def selecionar_video(self, caminho):
         self.video_atual = caminho
         self.video_label.configure(text=os.path.basename(caminho), text_color=tema.TEXTO)
-        self.btn_corte.configure(state="normal")
         self.btn_assistir.configure(state="normal")
 
     def escolher_video(self):
@@ -151,14 +150,6 @@ class JanelaEditor:
             return []
 
     def start_corte_thread(self):
-        lista, erros = self.lista.ler_cortes()
-        if erros:
-            messagebox.showwarning("Aviso", "Corrija os cortes:\n\n" + "\n".join(erros), parent=self.janela)
-            return
-        if not lista:
-            messagebox.showwarning("Aviso", "Preencha pelo menos um corte (início e fim), ex: 15:05 e 16:20",
-                                   parent=self.janela)
-            return
         try:
             audio = self.painel_audio.opcoes()
         except ValueError as e:
@@ -167,7 +158,29 @@ class JanelaEditor:
         opcoes = dict(limitar_whatsapp=self.whatsapp_var.get(), equilibrar_volume=self.volume_var.get(),
                       usar_gpu=self.gpu_var.get(), **audio)
         montagem = self.painel_montagem.opcoes()
-        if montagem and len(lista) > 1:
+
+        if montagem and montagem["fonte"] == "prontos":  # junta cortes que já existem (não usa o vídeo nem a lista)
+            vinhetas = bool(montagem["abertura"]) + bool(montagem["encerramento"])
+            if not montagem["arquivos"] or len(montagem["arquivos"]) + vinhetas < 2:
+                messagebox.showwarning("Aviso", "Escolha pelo menos 2 cortes para juntar (botão \"+ Escolher cortes…\"), "
+                                       "ou 1 corte com uma vinheta.", parent=self.janela)
+                return
+            threading.Thread(target=self.montar_prontos, args=(opcoes, montagem), daemon=True).start()
+            return
+
+        if not self.video_atual:
+            messagebox.showwarning("Aviso", "Escolha um vídeo primeiro (ou use a montagem com cortes já gerados).",
+                                   parent=self.janela)
+            return
+        lista, erros = self.lista.ler_cortes()
+        if erros:
+            messagebox.showwarning("Aviso", "Corrija os cortes:\n\n" + "\n".join(erros), parent=self.janela)
+            return
+        if not lista:
+            messagebox.showwarning("Aviso", "Preencha pelo menos um corte (início e fim), ex: 15:05 e 16:20",
+                                   parent=self.janela)
+            return
+        if montagem and (len(lista) > 1 or montagem["abertura"] or montagem["encerramento"]):
             alvo, argumentos = self.fazer_montagem, (lista, opcoes, montagem)
         else:  # com um corte só, "juntar" não muda nada: sai como corte comum
             alvo, argumentos = self.fazer_cortes, (lista, opcoes)
@@ -194,24 +207,41 @@ class JanelaEditor:
         self.na_tela(self.btn_corte.configure, state="normal")
         self.na_tela(self.corte_bar.set, 0)
 
-    def fazer_montagem(self, lista, opcoes, montagem):
-        """Junta todos os cortes da lista, na ordem dela, num vídeo só"""
-        video, pasta = self.video_atual, self.pasta_da_aula()
-        caminho = os.path.join(pasta, montagem["nome"] + ".mp4")
-        trechos = [(inicio, fim) for inicio, fim, _ in lista]
+    def executar_montagem(self, trechos, pasta, opcoes, montagem):
+        """Junta os trechos [(arquivo, início, fim)] num vídeo só dentro de 'pasta'"""
         self.na_tela(self.btn_corte.configure, state="disabled")
         try:
+            caminho = nome_livre(pasta, montagem["nome"])  # não sobrescreve uma montagem anterior
+            nome = os.path.basename(caminho)
             gerar = lambda **extra: juncao.juntar_cortes(
-                video, trechos, caminho, montagem["transicao"], ao_iniciar=self.registrar_processo,
+                trechos, caminho, montagem["transicao"], ao_iniciar=self.registrar_processo,
+                abertura=montagem["abertura"], encerramento=montagem["encerramento"],
+                duracao_imagem=montagem["duracao_imagem"],
                 ao_progresso=lambda f: self.mostrar_andamento(
-                    f"Montando {montagem['nome']} ({len(trechos)} cortes) — {f * 100:.0f}%", f),
+                    f"Montando {nome} ({len(trechos)} cortes) — {f * 100:.0f}%", f),
                 **{**opcoes, **extra})
             self.com_plano_b(gerar, opcoes["usar_gpu"])
-            self.terminar(f"✓ {montagem['nome']}.mp4 gerado em Cortes\\{os.path.basename(pasta)}")
+            self.terminar(f"✓ {nome} gerado em Cortes\\{os.path.basename(pasta)}")
             self.na_tela(abrir_pasta, pasta)
         except Exception as e:
             self.terminar("Erro ao montar o vídeo", erro=True)
             self.na_tela(messagebox.showerror, "Erro", str(e), parent=self.janela)
+
+    def fazer_montagem(self, lista, opcoes, montagem):
+        """Junta os cortes da lista (tempos do vídeo atual), na ordem dela, num vídeo só"""
+        trechos = [(self.video_atual, inicio, fim) for inicio, fim, _ in lista]
+        self.executar_montagem(trechos, self.pasta_da_aula(), opcoes, montagem)
+
+    def montar_prontos(self, opcoes, montagem):
+        """Junta cortes que já foram gerados (arquivos), na ordem escolhida, num vídeo só"""
+        pasta = os.path.join(PASTA_CORTES, "Montagens")
+        os.makedirs(pasta, exist_ok=True)
+        try:
+            trechos = juncao.trechos_de_arquivos(montagem["arquivos"])
+        except RuntimeError as e:
+            self.na_tela(messagebox.showerror, "Erro", str(e), parent=self.janela)
+            return
+        self.executar_montagem(trechos, pasta, opcoes, montagem)
 
     def fazer_cortes(self, lista, opcoes):
         video, pasta = self.video_atual, self.pasta_da_aula()

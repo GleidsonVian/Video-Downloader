@@ -1,9 +1,27 @@
 """Geração dos cortes com o ffmpeg (sem nada de interface)."""
+import json
 import os
 import subprocess
 
 SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=7"  # volume padrão de redes sociais (-16 LUFS)
+
+
+def info_midia(caminho):
+    """Dados de um arquivo de vídeo: {'duracao' (s), 'largura', 'altura', 'audio' (tem trilha de áudio?)}"""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
+         "-of", "json", caminho],
+        capture_output=True, text=True, timeout=30, creationflags=SEM_JANELA)
+    try:
+        dados = json.loads(r.stdout or "{}")
+    except ValueError:
+        dados = {}
+    streams = dados.get("streams", [])
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
+    return {"duracao": float(dados.get("format", {}).get("duration") or 0),
+            "largura": video.get("width", 0), "altura": video.get("height", 0),
+            "audio": any(s.get("codec_type") == "audio" for s in streams)}
 
 
 def filtro_audio(modo, equilibrar_volume, volume_musica, duracao, voz="[0:a]", entrada_musica="[1:a]"):

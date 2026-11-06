@@ -37,6 +37,16 @@ def listar_musicas():
             if nome.lower().endswith(EXT_AUDIO)}
 
 
+def nome_livre(pasta, nome, extensao=".mp4"):
+    """'Resumo' -> 'Resumo.mp4'; se já existir, 'Resumo (2).mp4' etc. (não sobrescreve montagem anterior)"""
+    caminho = os.path.join(pasta, nome + extensao)
+    n = 2
+    while os.path.exists(caminho):
+        caminho = os.path.join(pasta, f"{nome} ({n}){extensao}")
+        n += 1
+    return caminho
+
+
 def formatar_tamanho(bytes_):
     """1536 -> '1,5 KB'; 1_500_000_000 -> '1,4 GB'"""
     valor = float(bytes_)
