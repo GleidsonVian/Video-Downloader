@@ -9,7 +9,8 @@ from . import tema
 from .arquivos import nome_de_arquivo
 from .config import EXT_IMAGEM, EXT_VIDEO, PASTA_SCRIPT, PASTA_VINHETAS
 from .juncao import TRANSICOES
-from .seletor_cortes import SeletorCortes
+from .lista_arquivos import ListaArquivos
+from .seletor import SeletorCortes
 
 FONTES = {"Cortes da lista": "lista", "Cortes já gerados": "prontos"}
 DICAS = {"lista": "A ordem é a da lista de cortes (use ▲ ▼). Os nomes dos cortes não são usados.",
@@ -63,7 +64,6 @@ class PainelMontagem(ctk.CTkFrame):
     def __init__(self, pai, ao_mudar=None):
         super().__init__(pai, fg_color=tema.CARTAO, corner_radius=14, border_width=1, border_color=tema.BORDA)
         self.ao_mudar = ao_mudar  # chamado quando a opção de juntar é ligada/desligada
-        self.arquivos = []        # cortes já gerados escolhidos para a montagem, na ordem
         self.fonte = tk.StringVar(value="lista")
         tema.rotulo(self, "MONTAGEM", 11, True, suave=True).pack(anchor="w", padx=16, pady=(12, 0))
         self.juntar = tk.BooleanVar(value=False)
@@ -85,8 +85,10 @@ class PainelMontagem(ctk.CTkFrame):
         self.resumo = tema.rotulo(topo, "", 12, suave=True)
         self.resumo.pack(side=tk.LEFT, padx=10)
         # Sem rolagem própria (a coluna do editor já rola): a lista cresce conforme os cortes escolhidos
-        self.lista = ctk.CTkFrame(self.quadro_prontos, fg_color=tema.CAMPO, corner_radius=10)
+        self.lista = ListaArquivos(self.quadro_prontos, "Clique em \"+ Escolher cortes…\" para começar.",
+                                   self.atualizar_resumo)
         self.lista.pack(fill=tk.X, pady=(6, 0))
+        self.atualizar_resumo()
 
         self.detalhes = ctk.CTkFrame(self, fg_color="transparent")
         self.detalhes.pack(fill=tk.X, padx=16, pady=(10, 0))
@@ -129,34 +131,10 @@ class PainelMontagem(ctk.CTkFrame):
         janela.janela.after(150, janela.janela.focus_force)
 
     def adicionar(self, caminhos):
-        self.arquivos += caminhos
-        self.redesenhar()
+        self.lista.adicionar(caminhos)
 
-    def mover(self, indice, direcao):
-        destino = indice + direcao
-        if 0 <= destino < len(self.arquivos):
-            self.arquivos[indice], self.arquivos[destino] = self.arquivos[destino], self.arquivos[indice]
-            self.redesenhar()
-
-    def remover(self, indice):
-        del self.arquivos[indice]
-        self.redesenhar()
-
-    def redesenhar(self):
-        for filho in self.lista.winfo_children():
-            filho.destroy()
-        for i, caminho in enumerate(self.arquivos):
-            linha = ctk.CTkFrame(self.lista, fg_color="transparent")
-            linha.pack(fill=tk.X, pady=1, padx=2)
-            tema.rotulo(linha, f"{i + 1}.  {os.path.basename(caminho)}", 12, anchor="w").pack(
-                side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
-            tema.botao_pequeno(linha, "▲", lambda i=i: self.mover(i, -1), 26).pack(side=tk.LEFT)
-            tema.botao_pequeno(linha, "▼", lambda i=i: self.mover(i, 1), 26).pack(side=tk.LEFT)
-            tema.botao_pequeno(linha, "✕", lambda i=i: self.remover(i), 26, cor_texto=tema.VERMELHO_TEXTO).pack(
-                side=tk.LEFT)
-        if not self.arquivos:
-            tema.rotulo(self.lista, "Clique em \"+ Escolher cortes…\" para começar.", 12, suave=True).pack(pady=14)
-        n = len(self.arquivos)
+    def atualizar_resumo(self):
+        n = len(self.lista.arquivos)
         self.resumo.configure(text=f"{n} corte(s) escolhido(s)" if n else "nenhum corte escolhido")
 
     def atualizar(self):
@@ -174,7 +152,7 @@ class PainelMontagem(ctk.CTkFrame):
         fonte = self.fonte.get()
         if fonte == "prontos":
             self.quadro_prontos.pack(fill=tk.X, padx=16, pady=(8, 0), before=self.detalhes)
-            self.redesenhar()
+            self.lista.redesenhar()
         else:
             self.quadro_prontos.pack_forget()
         self.dica.configure(text=DICAS[fonte])
@@ -193,5 +171,5 @@ class PainelMontagem(ctk.CTkFrame):
             segundos = 3.0
         return {"nome": nome_de_arquivo(self.nome.get()) or "Vídeo montado",
                 "transicao": TRANSICOES[self.transicao.get()], "fonte": self.fonte.get(),
-                "arquivos": list(self.arquivos), "abertura": self.abertura.caminho(),
+                "arquivos": list(self.lista.arquivos), "abertura": self.abertura.caminho(),
                 "encerramento": self.encerramento.caminho(), "duracao_imagem": segundos}

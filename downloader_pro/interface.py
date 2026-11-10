@@ -106,7 +106,7 @@ class JanelaPrincipal:
             self.biblioteca.atualizar()
 
     def musica_baixada(self, caminho):
-        self.progress_label.configure(text="Música pronta! Escolha-a em \"Áudio do corte\" no editor.")
+        self.progress_label.configure(text="Música pronta! Adicione-a em \"Áudio do corte\" no editor.")
         if self.editor and self.editor.janela.winfo_exists():
             self.editor.painel_audio.atualizar_musicas(caminho)
         self.atualizar_biblioteca()

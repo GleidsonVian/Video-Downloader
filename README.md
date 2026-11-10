@@ -6,7 +6,7 @@ Programa com interface gráfica para baixar vídeos do YouTube (até 1080p) e ge
 
 - Download em até 1080p, preferindo H.264 (abre em qualquer player e no celular)
 - **Player para marcar cortes**: assista em 1x a 4x, clique em *Marcar início* e *Fechar corte* e o corte entra na lista (requer o [VLC](https://www.videolan.org/) de 64 bits)
-- **Música de fundo**: baixe só o áudio (MP3, ~5 MB) e use como fundo dos cortes, misturada à voz ou no lugar do áudio original
+- **Música de fundo**: baixe só o áudio (MP3, ~5 MB) e use como fundo dos cortes, misturada à voz ou no lugar do áudio original. Dá para escolher **várias músicas**: elas tocam em sequência, com transição suave, e a lista recomeça se o vídeo for mais longo
 - **Montagem**: junta os cortes num vídeo só, na ordem que você escolher (▲ ▼), com transição (corte seco ou fade) e a música por cima. Pode juntar os tempos da lista **ou cortes que você já gerou** (arquivos prontos, mesmo de aulas diferentes). Aceita **vinheta de abertura e de encerramento** (imagem ou vídeo, como o logo do grupo)
 - **Biblioteca**: vídeos, músicas e cortes com o tamanho de cada um; abrir, editar e apagar (vai para a Lixeira)
 - Vários cortes de uma vez; cada um nasce com um nome padrão (*Corte 1*, *Corte 2*…) que você pode trocar
@@ -75,7 +75,7 @@ python main.py
 **Editor** (cortes e música):
 1. Preencha início e fim (minutos:segundos, ex: `15:05`), ou use **Assistir e marcar cortes** para marcar assistindo (velocidade de 1x a 4x). O nome vem pronto (*Corte 1*…) e pode ser trocado
 2. Use **+ Adicionar corte** (ou Enter no campo do nome) para mais cortes, e ▲ ▼ para mudar a ordem
-3. Em **Áudio do corte**, escolha: *Original*, *Música de fundo* (a música baixinha sob a voz, com volume e ponto de início ajustáveis) ou *Trocar pela música* (o volume também vale aqui). Música mais curta que o corte se repete
+3. Em **Áudio do corte**, escolha: *Original*, *Música de fundo* (a música baixinha sob a voz, com volume e ponto de início ajustáveis) ou *Trocar pela música* (o volume também vale aqui). Clique em **+ Adicionar músicas…**, marque quantas quiser e ajuste a ordem com ▲ ▼: elas tocam uma depois da outra, com uma transição de 2 s, e a lista volta ao começo se o vídeo for mais longo que ela. O "começar em" vale só para a primeira música
 4. Para um vídeo só, ligue **Juntar os cortes num vídeo só**, escolha o nome e a transição, e a fonte:
    - *Cortes da lista*: junta os tempos da lista, do vídeo aberto
    - *Cortes já gerados*: clique em **+ Escolher cortes…**, marque os arquivos que quer (de qualquer aula, ou use **Outro vídeo do PC…**) e ajuste a ordem com ▲ ▼. O resultado vai para `Cortes/Montagens/` e nunca sobrescreve uma montagem anterior
@@ -99,9 +99,12 @@ downloader_pro/
   tema.py                  cores e componentes visuais
   player.py                player VLC para marcar cortes
   lista_cortes.py          tabela de cortes (início / fim / nome)
-  painel_audio.py          escolha da música de fundo
+  painel_audio.py          escolha das músicas de fundo
+  trilha.py                junta várias músicas numa trilha (sequência, transição, repetição)
+  lista_arquivos.py        lista de arquivos escolhidos com ▲ ▼ ✕
+  midia.py                 dados de arquivos de vídeo/áudio (ffprobe)
   painel_montagem.py       opção de juntar os cortes
-  seletor_cortes.py        janela para escolher cortes já gerados
+  seletor.py               janelas para escolher cortes já gerados e músicas
   editor.py                janela do editor
   biblioteca.py            janela da biblioteca
   interface.py             janela principal (download)

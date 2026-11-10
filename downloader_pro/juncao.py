@@ -3,7 +3,9 @@ import os
 import subprocess
 
 from .config import EXT_IMAGEM
-from .cortes import LOUDNORM, filtro_audio, info_midia, opcoes_de_video, rodar_ffmpeg
+from . import trilha
+from .cortes import LOUDNORM, filtro_audio, opcoes_de_video, rodar_ffmpeg
+from .midia import info_midia
 
 # Nome mostrado na tela -> duração da transição entre os trechos, em segundos
 TRANSICOES = {"Corte seco": 0.0, "Fade suave (0,5 s)": 0.5, "Fade longo (1 s)": 1.0}
@@ -29,20 +31,18 @@ def cor_de_fundo(imagem):
 
 
 def montar_filtro(duracoes, transicao, modo_audio="original", equilibrar_volume=False, volume_musica=30,
-                  tamanho=None, entradas=None, entrada_musica=None, fundos=None):
+                  tamanho=None, entradas=None, fundos=None):
     """Monta o filtro do ffmpeg para emendar os trechos. Retorna (filtro, duração_total_em_segundos).
 
     'entradas' diz, para cada trecho, o par (índice da entrada de vídeo, índice da entrada de áudio) no
-    ffmpeg; por padrão o trecho i usa a entrada i para os dois. 'entrada_musica' é o índice da música
-    (por padrão, a entrada logo depois dos trechos). As saídas são [vjunto] (vídeo) e [aout] (áudio).
+    ffmpeg; por padrão o trecho i usa a entrada i para os dois. A música entra pelo rótulo [musica]
+    (montado por trilha.montar_trilha). As saídas são [vjunto] (vídeo) e [aout] (áudio).
     'tamanho' (largura, altura) ajusta trechos de tamanhos diferentes ao mesmo quadro, com faixas pretas
     se a proporção for outra (cortes de aulas diferentes podem ter resoluções diferentes).
     'fundos' dá a cor dessas faixas em cada trecho (padrão: preto).
     """
     n = len(duracoes)
     entradas = entradas or [(i, i) for i in range(n)]
-    if entrada_musica is None:
-        entrada_musica = n
     # A transição não pode ser maior que a metade do trecho mais curto
     fade = min(transicao, min(duracoes) / 2) if n > 1 else 0
     fundos = fundos or ["black"] * n
@@ -73,7 +73,7 @@ def montar_filtro(duracoes, transicao, modo_audio="original", equilibrar_volume=
         filtro.append(f"[ajunto]{LOUDNORM if equilibrar_volume else 'anull'}[aout]")
     else:  # a música cobre o vídeo todo, de ponta a ponta
         filtro.append(filtro_audio(modo_audio, equilibrar_volume, volume_musica, total,
-                                   voz="[ajunto]", entrada_musica=f"[{entrada_musica}:a]"))
+                                   voz="[ajunto]", entrada_musica="[musica]"))
         if modo_audio == "musica":
             filtro.append("[ajunto]anullsink")  # só a música: o áudio original é descartado
     return ";".join(filtro), total
@@ -138,11 +138,13 @@ def juntar_cortes(trechos, caminho_saida, transicao=0.0, limitar_whatsapp=False,
     """Junta os 'trechos' [(caminho, início, fim), ...], na ordem dada, num único arquivo.
 
     Os trechos podem ser partes de um mesmo vídeo ou arquivos diferentes (cortes já prontos).
+    'musica' pode ser um arquivo ou uma lista: as músicas tocam em sequência e a lista recomeça se acabar.
     'abertura' e 'encerramento' (vídeo ou imagem) entram antes e depois de todos os trechos.
     Tudo numa passada só do ffmpeg: o vídeo é recodificado uma vez (sem perder qualidade por emendas).
     """
-    if modo_audio != "original" and (not musica or not os.path.exists(musica)):
-        raise RuntimeError("Escolha uma música em \"Áudio do corte\" (ou use o áudio original).")
+    musicas = trilha.como_lista(musica)
+    if modo_audio != "original":
+        trilha.validar(musicas)
     principal = info_midia(trechos[0][0])  # o tamanho do vídeo final é o do primeiro CORTE, não o da vinheta
     tamanho = (principal["largura"], principal["altura"]) if principal["largura"] else None
     todos = list(trechos)
@@ -155,9 +157,11 @@ def juntar_cortes(trechos, caminho_saida, transicao=0.0, limitar_whatsapp=False,
     duracoes = [fim - inicio for _, inicio, fim in todos]
     fundos = [cor_de_fundo(c) if eh_imagem(c) else "black" for c, _, _ in todos]
     filtro, total = montar_filtro(duracoes, transicao, modo_audio, equilibrar_volume, volume_musica, tamanho,
-                                  pares, proxima, fundos)
-    if modo_audio != "original":
-        argumentos += ["-stream_loop", "-1", "-ss", str(inicio_musica), "-i", musica]  # recomeça se acabar
+                                  pares, fundos)
+    if modo_audio != "original":  # a trilha de música cobre o vídeo todo, tocando as músicas em sequência
+        entradas_musica, filtro_trilha = trilha.montar_trilha(musicas, inicio_musica, total, proxima)
+        argumentos += entradas_musica
+        filtro += ";" + filtro_trilha
     comando = [
         "ffmpeg", "-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1", *argumentos,
         "-filter_complex", filtro, "-map", "[vjunto]", "-map", "[aout]", "-t", f"{total:g}",

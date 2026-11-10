@@ -1,30 +1,14 @@
 """Geração dos cortes com o ffmpeg (sem nada de interface)."""
-import json
-import os
 import subprocess
+
+from . import trilha
+from .midia import info_midia  # noqa: F401  (outros módulos importam daqui)
 
 SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=7"  # volume padrão de redes sociais (-16 LUFS)
 
 
-def info_midia(caminho):
-    """Dados de um arquivo de vídeo: {'duracao' (s), 'largura', 'altura', 'audio' (tem trilha de áudio?)}"""
-    r = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
-         "-of", "json", caminho],
-        capture_output=True, text=True, timeout=30, creationflags=SEM_JANELA)
-    try:
-        dados = json.loads(r.stdout or "{}")
-    except ValueError:
-        dados = {}
-    streams = dados.get("streams", [])
-    video = next((s for s in streams if s.get("codec_type") == "video"), {})
-    return {"duracao": float(dados.get("format", {}).get("duration") or 0),
-            "largura": video.get("width", 0), "altura": video.get("height", 0),
-            "audio": any(s.get("codec_type") == "audio" for s in streams)}
-
-
-def filtro_audio(modo, equilibrar_volume, volume_musica, duracao, voz="[0:a]", entrada_musica="[1:a]"):
+def filtro_audio(modo, equilibrar_volume, volume_musica, duracao, voz="[0:a]", entrada_musica="[musica]"):
     """Monta o filtro do ffmpeg que combina o áudio do vídeo (voz) com a música em [aout]"""
     fade = min(2.0, duracao / 4)  # a música entra e sai suavemente, sem corte seco
     musica = f"{entrada_musica}afade=t=in:d={fade:g},afade=t=out:st={max(duracao - fade, 0):g}:d={fade:g}"
@@ -114,17 +98,16 @@ def gerar_corte(caminho_video, inicio, fim, caminho_corte, limitar_whatsapp=Fals
     """Corta o trecho [inicio, fim] do vídeo com o ffmpeg, reprocessando para o corte ficar exato.
 
     modo_audio: "original" (áudio do vídeo), "mistura" (áudio do vídeo + música baixinha ao fundo)
-    ou "musica" (só a música). A música recomeça sozinha se for mais curta que o corte.
+    ou "musica" (só a música). 'musica' pode ser um arquivo ou uma lista de arquivos: tocam em sequência,
+    com transição, e a lista recomeça sozinha se for mais curta que o corte.
     ao_progresso(fração 0 a 1) acompanha o andamento; ao_iniciar(processo) permite cancelar.
     """
     duracao = fim - inicio
     entrada_musica, audio_opts = [], []
     if modo_audio != "original":
-        if not musica or not os.path.exists(musica):
-            raise RuntimeError("Escolha uma música em \"Áudio do corte\" (ou use o áudio original).")
-        # -stream_loop -1: se a música acabar antes do corte, ela recomeça
-        entrada_musica = ["-stream_loop", "-1", "-ss", str(inicio_musica), "-i", musica]
-        audio_opts = ["-filter_complex", filtro_audio(modo_audio, equilibrar_volume, volume_musica, duracao),
+        entrada_musica, filtro_trilha = trilha.montar_trilha(trilha.como_lista(musica), inicio_musica, duracao, 1)
+        filtro_mistura = filtro_audio(modo_audio, equilibrar_volume, volume_musica, duracao, entrada_musica="[musica]")
+        audio_opts = ["-filter_complex", f"{filtro_trilha};{filtro_mistura}",
                       "-map", "0:v", "-map", "[aout]", "-ar", "48000"]
     elif equilibrar_volume:
         # Aproxima partes baixas (fala) das altas (berimbau/palmas).
