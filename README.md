@@ -9,6 +9,7 @@ Programa com interface gráfica para baixar vídeos do YouTube (até 1080p) e ge
 - **Música de fundo**: baixe só o áudio (MP3, ~5 MB) e use como fundo dos cortes, misturada à voz ou no lugar do áudio original. Dá para escolher **várias músicas**: elas tocam em sequência, com transição suave, e a lista recomeça se o vídeo for mais longo
 - **Montagem**: junta os cortes num vídeo só, na ordem que você escolher (▲ ▼), com transição (corte seco ou fade) e a música por cima. Pode juntar os tempos da lista **ou cortes que você já gerou** (arquivos prontos, mesmo de aulas diferentes). Aceita **vinheta de abertura e de encerramento** (imagem ou vídeo, como o logo do grupo)
 - **Biblioteca**: vídeos, músicas e cortes com o tamanho de cada um; abrir, editar e apagar (vai para a Lixeira)
+- **Durações na tela**: cada corte e cada música mostram a própria duração; a montagem mostra o total ("Montagem: 9 min 23 s") e a lista de músicas diz se a trilha cobre o vídeo ou quantas vezes ela repete
 - Vários cortes de uma vez; cada um nasce com um nome padrão (*Corte 1*, *Corte 2*…) que você pode trocar
 - Corte exato no segundo pedido, com barra de progresso
 - Visual moderno (tema escuro, [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter))

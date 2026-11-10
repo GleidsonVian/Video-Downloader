@@ -5,12 +5,13 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
-from . import tema
+from . import midia, tema
 from .arquivos import nome_de_arquivo
 from .config import EXT_IMAGEM, EXT_VIDEO, PASTA_SCRIPT, PASTA_VINHETAS
-from .juncao import TRANSICOES
+from .juncao import TRANSICOES, duracao_da_montagem, eh_imagem
 from .lista_arquivos import ListaArquivos
 from .seletor import SeletorCortes
+from .tempos import formatar_duracao
 
 FONTES = {"Cortes da lista": "lista", "Cortes já gerados": "prontos"}
 DICAS = {"lista": "A ordem é a da lista de cortes (use ▲ ▼). Os nomes dos cortes não são usados.",
@@ -61,9 +62,11 @@ class SeletorVinheta(ctk.CTkFrame):
 
 
 class PainelMontagem(ctk.CTkFrame):
-    def __init__(self, pai, ao_mudar=None):
+    def __init__(self, pai, ao_mudar=None, duracoes_da_lista=None):
+        """duracoes_da_lista(): durações (s) dos cortes da lista de tempos do editor (fonte "Cortes da lista")"""
         super().__init__(pai, fg_color=tema.CARTAO, corner_radius=14, border_width=1, border_color=tema.BORDA)
         self.ao_mudar = ao_mudar  # chamado quando a opção de juntar é ligada/desligada
+        self.duracoes_da_lista = duracoes_da_lista or (lambda: [])
         self.fonte = tk.StringVar(value="lista")
         tema.rotulo(self, "MONTAGEM", 11, True, suave=True).pack(anchor="w", padx=16, pady=(12, 0))
         self.juntar = tk.BooleanVar(value=False)
@@ -119,6 +122,8 @@ class PainelMontagem(ctk.CTkFrame):
 
         self.dica = tema.rotulo(self, DICAS["lista"], 11, suave=True, wraplength=300, justify="left")
         self.dica.pack(anchor="w", padx=16, pady=(6, 12))
+        self.total_label = tema.rotulo(self, "", 13, True)  # "Montagem: 9 min 23 s", só com a montagem ligada
+        self.total_visivel = False
         self.atualizar()
 
     # --- Fonte dos cortes ---
@@ -136,6 +141,61 @@ class PainelMontagem(ctk.CTkFrame):
     def atualizar_resumo(self):
         n = len(self.lista.arquivos)
         self.resumo.configure(text=f"{n} corte(s) escolhido(s)" if n else "nenhum corte escolhido")
+        self.atualizar_total()
+
+    # --- Duração total ---
+    def segundos_da_imagem(self):
+        try:
+            return min(max(float(self.segundos_imagem.get().replace(",", ".")), 1.0), 15.0)
+        except ValueError:
+            return 3.0
+
+    def duracao_de_vinheta(self, caminho):
+        # vídeo: lê o arquivo na primeira vez (fica guardado); imagem: o tempo configurado
+        return self.segundos_da_imagem() if eh_imagem(caminho) else midia.duracao_arquivo(caminho)
+
+    def duracao_total(self):
+        """None se a montagem está desligada; senão (segundos, quantidade de trechos).
+        Os segundos são None enquanto as durações dos arquivos ainda estão sendo lidas."""
+        if not self.juntar.get():
+            return None
+        if self.fonte.get() == "prontos":
+            duracoes = self.lista.duracoes()
+            if any(d is None for d in duracoes):
+                return None, len(duracoes)
+        else:
+            duracoes = list(self.duracoes_da_lista())
+        abertura, encerramento = self.abertura.caminho(), self.encerramento.caminho()
+        if abertura:
+            duracoes.insert(0, self.duracao_de_vinheta(abertura))
+        if encerramento:
+            duracoes.append(self.duracao_de_vinheta(encerramento))
+        duracoes = [d for d in duracoes if d > 0]
+        if not duracoes:
+            return 0.0, 0
+        return duracao_da_montagem(duracoes, TRANSICOES[self.transicao.get()]), len(duracoes)
+
+    def atualizar_total(self):
+        """Mostra (ou esconde) o total da montagem; chamado quando algo muda e de tempos em tempos"""
+        if not hasattr(self, "total_visivel"):
+            return  # o painel ainda está sendo montado
+        total = self.duracao_total()
+        if total is None:
+            if self.total_visivel:
+                self.total_label.pack_forget()
+                self.total_visivel = False
+            return
+        segundos, n = total
+        if segundos is None:
+            texto = "Montagem: lendo as durações…"
+        elif n == 0:
+            texto = "Montagem: nenhum corte ainda"
+        else:
+            texto = f"Montagem: {formatar_duracao(segundos)}  ·  {n} trecho(s)"
+        self.total_label.configure(text=texto)
+        if not self.total_visivel:
+            self.total_label.pack(anchor="w", padx=16, pady=(8, 0), before=self.dica)
+            self.total_visivel = True
 
     def atualizar(self):
         ligado = self.juntar.get()
@@ -156,6 +216,7 @@ class PainelMontagem(ctk.CTkFrame):
         else:
             self.quadro_prontos.pack_forget()
         self.dica.configure(text=DICAS[fonte])
+        self.atualizar_total()
         if self.ao_mudar:
             self.ao_mudar(ligado)
 
@@ -165,11 +226,7 @@ class PainelMontagem(ctk.CTkFrame):
         'abertura' e 'encerramento' (arquivo ou None), 'duracao_imagem' (segundos)}"""
         if not self.juntar.get():
             return None
-        try:
-            segundos = min(max(float(self.segundos_imagem.get().replace(",", ".")), 1.0), 15.0)
-        except ValueError:
-            segundos = 3.0
         return {"nome": nome_de_arquivo(self.nome.get()) or "Vídeo montado",
                 "transicao": TRANSICOES[self.transicao.get()], "fonte": self.fonte.get(),
                 "arquivos": list(self.lista.arquivos), "abertura": self.abertura.caminho(),
-                "encerramento": self.encerramento.caminho(), "duracao_imagem": segundos}
+                "encerramento": self.encerramento.caminho(), "duracao_imagem": self.segundos_da_imagem()}

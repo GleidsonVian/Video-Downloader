@@ -36,6 +36,7 @@ class JanelaEditor:
             self.selecionar_video(video)
         # A detecção testa o ffmpeg de verdade; roda em segundo plano para a janela abrir sem demora
         threading.Thread(target=self.detectar_placa, daemon=True).start()
+        self.atualizar_totais()
 
     def criar_widgets(self):
         j = self.janela
@@ -82,7 +83,8 @@ class JanelaEditor:
         self.btn_corte = tema.botao(embaixo, "GERAR CORTES", tema.AZUL, self.start_corte_thread, altura=50)
         self.painel_montagem = PainelMontagem(
             direita, ao_mudar=lambda juntar: self.btn_corte.configure(
-                text="GERAR VÍDEO MONTADO" if juntar else "GERAR CORTES"))
+                text="GERAR VÍDEO MONTADO" if juntar else "GERAR CORTES"),
+            duracoes_da_lista=self.duracoes_da_lista)
         self.painel_montagem.pack(fill=tk.X, pady=(12, 0))
         self.painel_audio = PainelAudio(direita)
         self.painel_audio.pack(fill=tk.X, pady=(12, 0))
@@ -98,6 +100,30 @@ class JanelaEditor:
 
     def na_tela(self, funcao, *args, **kwargs):
         agendar(self.janela, funcao, *args, **kwargs)
+
+    # --- Durações na tela ---
+    def duracoes_da_lista(self):
+        """Duração (s) de cada corte válido da lista de tempos"""
+        return [fim - inicio for inicio, fim, _ in self.lista.ler_cortes()[0]]
+
+    def duracao_alvo(self):
+        """('Montagem' ou 'Maior corte', segundos) que a trilha de música precisa cobrir, ou None"""
+        montagem = self.painel_montagem.duracao_total()
+        if montagem is not None:
+            return ("Montagem", montagem[0]) if montagem[0] else None
+        duracoes = self.duracoes_da_lista()
+        return ("Maior corte", max(duracoes)) if duracoes else None
+
+    def atualizar_totais(self):
+        """Atualiza o total da montagem e o resumo da trilha; repete a cada segundo enquanto a janela existe"""
+        try:
+            if not self.janela.winfo_exists():
+                return
+            self.painel_montagem.atualizar_total()
+            self.painel_audio.atualizar_trilha(self.duracao_alvo())
+            self.janela.after(1000, self.atualizar_totais)
+        except tk.TclError:
+            pass
 
     def detectar_placa(self):
         if not cortes.placa_amd_disponivel():

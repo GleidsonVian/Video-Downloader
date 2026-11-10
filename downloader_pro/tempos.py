@@ -23,3 +23,13 @@ def tempo_curto(segundos):
     h, resto = divmod(int(segundos), 3600)
     m, s = divmod(resto, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def formatar_duracao(segundos):
+    """Duração para ler na tela: 563 -> '9 min 23 s'; 45 -> '45 s'; 3720 -> '1 h 02 min'"""
+    total = int(round(segundos))
+    horas, resto = divmod(total, 3600)
+    minutos, seg = divmod(resto, 60)
+    if horas:
+        return f"{horas} h {minutos:02d} min"
+    return f"{minutos} min {seg:02d} s" if minutos else f"{seg} s"

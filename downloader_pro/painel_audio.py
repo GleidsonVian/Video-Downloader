@@ -1,4 +1,5 @@
 """Painel "Áudio do corte": áudio original, música de fundo (mistura) ou só a música (uma ou várias)."""
+import math
 import os
 import tkinter as tk
 
@@ -7,7 +8,7 @@ import customtkinter as ctk
 from . import tema
 from .lista_arquivos import ListaArquivos
 from .seletor import SeletorMusicas
-from .tempos import para_segundos
+from .tempos import formatar_duracao, para_segundos
 
 MODOS = {"Original": "original", "Música de fundo": "mistura", "Trocar pela música": "musica"}
 
@@ -41,20 +42,27 @@ class PainelAudio(ctk.CTkFrame):
         self.lista.pack(fill=tk.X, pady=(6, 0))
         self.atualizar_resumo()
 
+        self.trilha_label = tema.rotulo(self.opcoes_musica, "", 12, True, wraplength=300, justify="left", anchor="w")
+        self.trilha_visivel = False
         linha = ctk.CTkFrame(self.opcoes_musica, fg_color="transparent")
         linha.pack(fill=tk.X, pady=(8, 0))
+        self.linha_inicio = linha
         tema.rotulo(linha, "1ª música começa em", 12, suave=True).pack(side=tk.LEFT)
         self.inicio = tema.campo(linha, width=60, justify="center")
         self.inicio.insert(0, "00:00")
-        self.inicio.pack(side=tk.LEFT, padx=(6, 12))
-        tema.rotulo(linha, "Volume", 12, suave=True).pack(side=tk.LEFT)
-        self.volume = ctk.CTkSlider(linha, from_=5, to=100, number_of_steps=19, width=90, command=self.mostrar_volume,
+        self.inicio.pack(side=tk.LEFT, padx=(6, 0))
+        # Volume em linha própria: numa janela estreita não cabe tudo na mesma linha
+        linha_volume = ctk.CTkFrame(self.opcoes_musica, fg_color="transparent")
+        linha_volume.pack(fill=tk.X, pady=(8, 0))
+        tema.rotulo(linha_volume, "Volume", 12, suave=True).pack(side=tk.LEFT)
+        # O percentual entra antes do controle: assim nunca é cortado quando o espaço é pouco
+        self.volume_label = tema.rotulo(linha_volume, "30%", 12, True, width=44, anchor="e")
+        self.volume_label.pack(side=tk.RIGHT, padx=(0, 4))
+        self.volume = ctk.CTkSlider(linha_volume, from_=5, to=100, number_of_steps=19, command=self.mostrar_volume,
                                     progress_color=tema.AZUL[0], button_color=tema.TEXTO,
                                     button_hover_color=tema.TEXTO)
         self.volume.set(30)
-        self.volume.pack(side=tk.LEFT, padx=8)
-        self.volume_label = tema.rotulo(linha, "30%", 12, True, width=40, anchor="w")
-        self.volume_label.pack(side=tk.LEFT)
+        self.volume.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
         self.atualizar_opcoes()
 
     def mostrar_volume(self, valor):
@@ -76,7 +84,50 @@ class PainelAudio(ctk.CTkFrame):
 
     def atualizar_resumo(self):
         n = len(self.lista.arquivos)
-        self.resumo.configure(text=f"{n} músicas em sequência" if n > 1 else ("1 música (repete)" if n else ""))
+        self.resumo.configure(text=f"{n} músicas" if n > 1 else ("1 música" if n else ""))
+
+    def duracao_da_trilha(self):
+        """Quanto tempo a lista de músicas dura tocando uma vez (com as transições), ou None se ainda estiver
+        lendo as durações"""
+        duracoes = self.lista.duracoes()
+        if any(d is None for d in duracoes) or not duracoes:
+            return None
+        try:
+            inicio = para_segundos(self.inicio.get() or "0")
+        except ValueError:
+            inicio = 0
+        if inicio < duracoes[0] - 3:
+            duracoes[0] -= inicio  # a primeira música só toca do "começar em" em diante
+        fade = min(2.0, min(duracoes) / 3)
+        return sum(duracoes) - (len(duracoes) - 1) * fade
+
+    def atualizar_trilha(self, alvo=None):
+        """Mostra quanto dura a trilha e, se 'alvo' = (nome, segundos) for dado, se ela cobre o vídeo ou repete.
+
+        Chamado de tempos em tempos pelo editor; só aparece quando há música sendo usada."""
+        usando = self.modo.get() != "original" and bool(self.lista.arquivos)
+        if not usando:
+            if self.trilha_visivel:
+                self.trilha_label.pack_forget()
+                self.trilha_visivel = False
+            return
+        trilha = self.duracao_da_trilha()
+        if trilha is None:
+            texto = "Trilha: lendo as durações…"
+        else:
+            texto = f"Trilha: {formatar_duracao(trilha)}"
+            if alvo and alvo[1] > 0:
+                nome, segundos = alvo
+                if trilha >= segundos:
+                    texto += f"\n{nome}: {formatar_duracao(segundos)}. A trilha cobre tudo."
+                else:
+                    vezes = math.ceil(segundos / trilha) - 1
+                    texto += (f"\n{nome}: {formatar_duracao(segundos)}. A trilha repete {vezes} "
+                              f"{'vez' if vezes == 1 else 'vezes'}.")
+        self.trilha_label.configure(text=texto)
+        if not self.trilha_visivel:
+            self.trilha_label.pack(fill=tk.X, pady=(6, 0), before=self.linha_inicio)
+            self.trilha_visivel = True
 
     # --- Modo ---
     def atualizar_opcoes(self):

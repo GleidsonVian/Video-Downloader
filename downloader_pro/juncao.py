@@ -170,3 +170,10 @@ def juntar_cortes(trechos, caminho_saida, transicao=0.0, limitar_whatsapp=False,
     ]
     rodar_ffmpeg(comando, total, ao_progresso, ao_iniciar)
     return caminho_saida
+
+
+def duracao_da_montagem(duracoes, transicao):
+    """Duração final (s) de uma montagem com trechos dessas durações e dessa transição"""
+    n = len(duracoes)
+    fade = min(transicao, min(duracoes) / 2) if n > 1 else 0
+    return sum(duracoes) - (n - 1) * fade
